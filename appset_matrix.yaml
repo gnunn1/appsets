@@ -1,0 +1,136 @@
+---
+# Source: cluster-config-appset/templates/cluster-config-appset.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: hub-prod-local
+  labels:
+    cluster-name: hub-prod-local
+  # Use finalizer to delete resources when Application is deleted
+  # finalizers:
+  #   - resources-finalizer.argocd.argoproj.io
+spec:
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - git:
+              repoURL: https://github.com/gnunn-gitops/cluster-config-v2
+              revision: main
+              files:
+                - path: apps/**/**/overlays/all/app-config.yaml
+                - path: apps/**/**/overlays/hub/app-config.yaml
+                - path: apps/**/**/overlays/hub-prod/app-config.yaml
+                - path: apps/**/**/overlays/hub-prod-local/app-config.yaml
+              values:
+                appName: '{{ ternary (index . "appName") (index .path.segments 2) (hasKey . "appName") }}'
+                grouping: '{{ index .path.segments 1 }}'
+                destinationNamespace: '{{ ternary (index . "namespace") (index .path.segments 2) (hasKey . "namespace") }}'
+          - clusters:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: "hub-prod-local"
+                  argocd.argoproj.io/secret-type: cluster
+              values:
+                argoCDAgent: '{{ ternary "true" "false" (ne (index .metadata.labels "argocd-agent.argoproj-labs.io/agent-name") "") }}'
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: grouping
+              operator: In
+              values:
+                - 00-core
+
+        - matchExpressions:
+            - key: grouping
+              operator: In
+              values:
+                - 10-config
+
+        - matchExpressions:
+            - key: grouping
+              operator: In
+              values:
+                - 20-operators
+
+        - matchExpressions:
+            - key: grouping
+              operator: In
+              values:
+                - 99-indefinite
+  template:
+    metadata:
+      annotations:
+        argocd.argoproj.io/manifest-generate-paths: ".;../../base"
+      name: 'hpl-{{ .values.appName }}'
+      labels:
+        argocd-agent: '{{ .values.argoCDAgent }}'
+        name: '{{ .values.appName }}'
+        cluster-name: '{{ .name }}'
+        grouping: '{{ .values.grouping }}'
+        env: 'prod'
+        region: 'local'
+        type: 'hub'
+    spec:
+      # Comment out for debugging appset parameters
+      info:
+        - name: "parameters"
+          value: |
+            {{ toPrettyJson . }}
+      project: cluster-config
+      source:
+        repoURL: https://github.com/gnunn-gitops/cluster-config-v2
+        targetRevision: '{{ ternary (index . "targetRevision") (.metadata.annotations.targetRevision) (hasKey . "targetRevision") }}'
+        path: '{{ .path.path }}'
+      destination:
+        name: '{{ .name }}'
+        namespace: '{{ .values.destinationNamespace }}'
+      syncPolicy:
+        automated:
+          selfHeal: true
+  templatePatch: |
+    {{- if hasKey . "annotations" }}
+    metadata:
+      annotations:
+          {{- with .annotations }}
+          {{ toYaml . | indent 4 }}
+          {{- end }}
+    {{- end }}
+    {{- if or (hasKey . "syncOptions") (hasKey . "clusterSettings") }}
+    spec:
+      {{- if hasKey . "clusterSettings" }}
+      source:
+        kustomize:
+          patches:
+            - patch: |
+                - op: add
+                  path: /data/baseDomain
+                  value: {{ .metadata.annotations.baseDomain }}
+                - op: add
+                  path: /data/subdomain
+                  value: {{ .metadata.annotations.subdomain }}
+                - op: add
+                  path: /data/clusterID
+                  value: {{ .metadata.annotations.clusterID }}
+                - op: add
+                  path: /data/infrastructureID
+                  value: {{ .metadata.annotations.infrastructureID }}
+              target:
+                kind: ConfigMap
+                labelSelector: "clusterSettings=true"
+      {{- end }}
+      {{- if hasKey . "syncOptions" }}
+      syncPolicy:
+        automated:
+          selfHeal: true
+        syncOptions:
+        {{- with .syncOptions }}
+        {{ toYaml . | indent 4 }}
+        {{- end }}
+      {{- end }}
+    {{- end}}
