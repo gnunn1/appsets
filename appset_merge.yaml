@@ -7,9 +7,6 @@ spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:
-    # With goTemplate, mergeKeys only work on top-level params (not nested
-    # values.*). Matrix + nested merge also allows N clusters to share one env
-    # override (merge alone requires unique merge keys in every generator).
     - matrix:
         generators:
           - clusters:
@@ -54,6 +51,5 @@ spec:
             - name: replicaCount
               value: '{{ .values.replicas }}'
       destination:
-        # Replaces with the matched cluster server URL from the generators
         server: '{{ .server }}'
         namespace: default
