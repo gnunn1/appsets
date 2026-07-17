@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: merge-generator-example
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    # With goTemplate, mergeKeys only work on top-level params (not nested
+    # values.*). Matrix + nested merge also allows N clusters to share one env
+    # override (merge alone requires unique merge keys in every generator).
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  type: "workload"
+          - merge:
+              mergeKeys:
+                - env
+              generators:
+                # Promote the cluster env label to a top-level merge key,
+                # with a default replica count.
+                - list:
+                    elements:
+                      - env: '{{ index .metadata.labels "env" }}'
+                        values:
+                          replicas: "1"
+                # Override replicas by environment
+                - list:
+                    elements:
+                      - env: dev
+                        values:
+                          replicas: "1"
+                      - env: prod
+                        values:
+                          replicas: "3"
+  template:
+    metadata:
+      name: '{{ .name }}-app'
+    spec:
+      info:
+        - name: "parameters"
+          value: |
+            {{ toPrettyJson . }}
+      project: default
+      source:
+        repoURL: https://github.com
+        targetRevision: HEAD
+        path: guestbook
+        helm:
+          parameters:
+            - name: replicaCount
+              value: '{{ .values.replicas }}'
+      destination:
+        # Replaces with the matched cluster server URL from the generators
+        server: '{{ .server }}'
+        namespace: default
