@@ -19,10 +19,12 @@ spec:
                 replicas: "1"
           - list:
               elements:
-                - values.env: dev
-                  values.replicas: "1"
-                - values.env: prod
-                  values.replicas: "3"
+                - values:
+                    env: dev
+                    replicas: "1"
+                - values:
+                    env: prod
+                    replicas: "3"
   template:
     metadata:
       name: "app-{{values.env}}"
