@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: merge-generator-example
+  namespace: argocd
+spec:
+  goTemplate: false
+  generators:
+    - merge:
+        mergeKeys:
+          - values.env
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  type: "workload"
+              values:
+                env: "{{metadata.labels.env}}"
+                replicas: "1"
+          - list:
+              elements:
+                - values.env: dev
+                  values.replicas: "1"
+                - values.env: prod
+                  values.replicas: "3"
+  template:
+    metadata:
+      name: "app-{{values.env}}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com
+        targetRevision: HEAD
+        path: guestbook
+        helm:
+          parameters:
+            - name: replicaCount
+              value: "{{values.replicas}}"
+      destination:
+        server: "{{server}}"
+        namespace: default
